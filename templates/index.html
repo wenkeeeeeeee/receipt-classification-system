@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#f3eee3">
+<title>Receipt Classification System — Live Demo</title>
+<meta name="description" content="Upload a receipt: OCR, field extraction and spending-category classification with DistilBERT, EfficientNet-B0 and late fusion, verified by an LLM safety net.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='4' fill='%23221e1a'/%3E%3Cpath d='M7 5h10v14l-2-1.3-1.5 1.3-1.5-1.3-1.5 1.3L9 17.7 7 19z' fill='none' stroke='%23f3eee3' stroke-width='1.6'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+    </div>
+    <div>
+      <h1>Receipt Classification System</h1>
+      <span class="tag eyebrow">PaddleOCR &middot; DistilBERT &middot; EfficientNet-B0 &middot; Late Fusion &middot; LLM Safety Net</span>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span class="pill" id="llmPill" title="LLM safety net status"><span class="dot"></span><span class="pill-text">Connecting&hellip;</span></span>
+    <button class="ghost-btn" id="aboutBtn" type="button">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>
+      <span class="btn-text">How it works</span>
+    </button>
+    <button class="ghost-btn" id="historyBtn" type="button">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
+      <span class="btn-text">History</span> <span class="count" id="historyCount">0</span>
+    </button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- LEFT PANEL: input + pipeline progress -->
+  <aside class="left">
+
+    <section class="card card-pad" aria-labelledby="uploadTitle">
+      <div class="card-head"><span class="eyebrow" id="uploadTitle">01 &middot; Input</span></div>
+      <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Upload a receipt image">
+        <div class="dz-icon" aria-hidden="true">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M12 7v7M9 10l3-3 3 3"/></svg>
+        </div>
+        <strong>Drop a receipt here</strong>
+        <p>or click to browse &middot; <span id="acceptHint">PNG, JPG, WEBP, BMP &middot; max 15 MB</span></p>
+      </div>
+      <div class="upload-actions">
+        <button class="ghost-btn" type="button" id="browseBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg>Browse files
+        </button>
+        <button class="ghost-btn camera-only" type="button" id="cameraBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Take photo
+        </button>
+      </div>
+      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,image/bmp" hidden>
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+
+      <div class="samples" id="samples" hidden>
+        <span class="eyebrow">Or try a sample receipt</span>
+        <div class="samples-grid" id="samplesGrid"></div>
+      </div>
+    </section>
+
+    <section class="card card-pad" id="previewCard" hidden aria-label="Receipt preview">
+      <div class="card-head">
+        <div class="file-row">
+          <span class="eyebrow">02 &middot; Preview</span>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Image view">
+          <button class="tab" role="tab" data-view="original" aria-selected="true">Original</button>
+          <button class="tab" role="tab" data-view="processed" aria-selected="false" disabled>Processed</button>
+          <button class="tab" role="tab" data-view="compare" aria-selected="false" disabled>Compare</button>
+        </div>
+      </div>
+      <div class="viewer" id="viewer" title="Click to zoom"></div>
+      <div class="prep-meta" id="prepMeta"></div>
+      <div class="file-row" style="margin-top:10px">
+        <span class="file-name" id="fileName"></span>
+        <button class="icon-btn" id="clearBtn" type="button" title="Remove image" aria-label="Remove image">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <div class="scan-wrap">
+      <button class="scan-btn" id="scanBtn" type="button" disabled>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M3 12h18"/></svg>
+        <span id="scanLabel">Scan receipt</span>
+      </button>
+    </div>
+
+    <section class="card card-pad" id="pipelineCard" aria-live="polite" aria-label="Pipeline progress">
+      <div class="card-head"><span class="eyebrow">03 &middot; Pipeline</span><span class="eyebrow" id="pipelineState">Idle</span></div>
+      <div class="queue-note" id="queueNote" hidden></div>
+      <ol class="steps" id="steps"></ol>
+      <div class="steps-total" id="stepsTotal" hidden><span>Total</span><strong id="totalTime">—</strong></div>
+    </section>
+  </aside>
+
+  <!-- RIGHT PANEL: results -->
+  <section class="right">
+
+    <div class="empty-state" id="emptyState">
+      <span class="eyebrow">Live demo</span>
+      <h2>Turn a photo of a receipt into structured, categorised spending data.</h2>
+      <p class="lead">Upload a receipt (or pick a sample) and watch it move through the full pipeline: image cleaning, OCR, field extraction, multimodal classification and an LLM safety net.</p>
+      <div class="flow">
+        <div class="flow-step"><b>Preprocess</b><span>Grayscale, resize, adaptive threshold</span></div>
+        <div class="flow-step"><b>OCR</b><span>PaddleOCR 3.x text lines</span></div>
+        <div class="flow-step"><b>Extract</b><span>Regex + LLM validator for 5 fields</span></div>
+        <div class="flow-step"><b>Classify</b><span>DistilBERT, EfficientNet, fusion</span></div>
+        <div class="flow-step"><b>Verify</b><span>LLM safety net below 95% confidence</span></div>
+      </div>
+      <div class="stats" id="stats">
+        <div class="stat"><b>90.5%</b><span>DistilBERT accuracy</span></div>
+        <div class="stat"><b>91.1%</b><span>Late-fusion accuracy</span></div>
+        <div class="stat"><b>7</b><span>Spending categories</span></div>
+        <div class="stat"><b>2,197</b><span>Labelled receipts</span></div>
+      </div>
+    </div>
+
+    <div class="card live" id="liveCard" hidden aria-live="polite">
+      <span class="eyebrow" id="liveEyebrow">Processing</span>
+      <h2 id="liveTitle">Reading your receipt&hellip;</h2>
+      <div class="live-sub" id="liveSub"></div>
+      <div class="live-bar" id="liveBar"></div>
+      <div class="live-labels" id="liveLabels"></div>
+      <div class="live-foot"><span id="liveFile"></span><span id="liveElapsed">0.0s</span></div>
+    </div>
+
+    <div class="error-box" id="errorBox" role="alert" hidden>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex:none;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>
+      <div><b id="errorTitle">Something went wrong</b><span id="errorMsg"></span></div>
+    </div>
+
+    <div class="results" id="results" hidden>
+
+      <!-- Final verdict -->
+      <div class="verdict" id="verdict">
+        <span class="eyebrow">Final classification</span>
+        <div class="verdict-main">
+          <div class="verdict-icon" id="verdictIcon"></div>
+          <div>
+            <div class="category" id="heroCategory">—</div>
+            <div class="sub" id="heroSub">—</div>
+          </div>
+        </div>
+        <div class="meter" id="meter">
+          <div class="meter-row"><span id="meterLabel">DistilBERT confidence</span><span id="meterValue">—</span></div>
+          <div class="meter-track"><div class="meter-fill" id="meterFill"></div><div class="meter-threshold" id="meterThreshold" data-label="95% threshold"></div></div>
+        </div>
+        <div class="badges" id="verdictBadges"></div>
+        <ol class="trail" id="trail"></ol>
+      </div>
+
+      <div class="section-label"><span>Extracted fields &amp; model agreement</span></div>
+      <div class="grid-2">
+        <div>
+          <div class="paper-receipt" id="receiptCard"></div>
+          <div class="actions" style="margin-top:12px">
+            <button class="btn" id="copyFieldsBtn" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></svg>Copy fields
+            </button>
+          </div>
+        </div>
+        <div class="card agree-card" id="agreeCard"></div>
+      </div>
+
+      <div class="section-label"><span>Model scores</span><span id="scoresNote"></span></div>
+      <div class="models">
+        <div class="card model-card primary">
+          <h3>DistilBERT <span class="badge-lite">Primary &middot; Text</span></h3>
+          <div class="model-sub" id="bertSub">V1 &middot; augmented</div>
+          <div class="top-pred" id="bertTopPred">—</div>
+          <div id="bertBars"></div>
+        </div>
+        <div class="card model-card">
+          <h3>Late Fusion <span class="badge-lite" id="fusionBadge">0.3 CNN / 0.7 BERT</span></h3>
+          <div class="model-sub">Weighted average of both</div>
+          <div class="top-pred" id="fusedTopPred">—</div>
+          <div id="fusedBars"></div>
+        </div>
+        <div class="card model-card">
+          <h3>EfficientNet-B0 <span class="badge-lite">CNN &middot; Visual</span></h3>
+          <div class="model-sub">V1 &middot; augmented</div>
+          <div class="top-pred" id="cnnTopPred">—</div>
+          <div id="cnnBars"></div>
+        </div>
+      </div>
+
+      <div class="section-label"><span>Raw OCR output</span></div>
+      <div class="card ocr-card">
+        <div class="ocr-toolbar">
+          <div class="tabs" role="tablist" aria-label="OCR view">
+            <button class="tab" role="tab" data-ocr="lines" aria-selected="true">Lines</button>
+            <button class="tab" role="tab" data-ocr="raw" aria-selected="false">Model input</button>
+          </div>
+          <span class="meta" id="ocrMeta"></span>
+          <button class="icon-btn" id="copyOcrBtn" type="button" title="Copy OCR text" aria-label="Copy OCR text" style="color:#b0a594">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></svg>
+          </button>
+        </div>
+        <div class="ocr-box" id="ocrBox">—</div>
+      </div>
+
+      <div class="actions">
+        <button class="btn dark" id="newScanBtn" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Scan another
+        </button>
+        <button class="btn" id="downloadBtn" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Download JSON
+        </button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- History drawer -->
+<div class="scrim" id="historyScrim" hidden></div>
+<aside class="drawer" id="historyDrawer" hidden aria-label="Scan history">
+  <div class="drawer-head">
+    <h2>Recent scans</h2>
+    <div>
+      <button class="ghost-btn" id="clearHistoryBtn" type="button">Clear</button>
+      <button class="icon-btn" id="closeHistoryBtn" type="button" aria-label="Close history">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="drawer-body" id="historyList"></div>
+</aside>
+
+<!-- About modal -->
+<div class="scrim" id="aboutScrim" hidden></div>
+<div class="modal" id="aboutModal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle" hidden>
+  <div class="drawer-head">
+    <h2 id="aboutTitle">How it works</h2>
+    <button class="icon-btn" id="closeAboutBtn" type="button" aria-label="Close">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="modal-body" id="aboutBody"></div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-close" type="button">Close &middot; Esc</button>
+  <img id="lightboxImg" alt="Zoomed receipt">
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

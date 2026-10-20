@@ -1,0 +1,13 @@
+flask>=3.0
+torch
+torchvision
+transformers
+paddlepaddle
+paddleocr>=3.0
+opencv-python
+numpy
+pillow
+python-dotenv
+groq>=0.9
+# Optional, only for OCRProcessor.extract_text_from_pdf (needs poppler installed)
+# pdf2image

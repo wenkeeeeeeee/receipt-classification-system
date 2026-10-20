@@ -1,0 +1,10 @@
+.env
+uploads/*
+!uploads/.gitkeep
+__pycache__/
+*.pyc
+cloudflared.exe
+models/
+receipt-models-*.zip
+.venv/
+venv/
